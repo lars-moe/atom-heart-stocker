@@ -1,0 +1,16 @@
+# GitHub switches off scheduled workflows in repositories with no activity for 60 days.
+# Re-enabling the workflow twice a month resets that clock.
+name: keepalive
+on:
+  schedule:
+    - cron: "17 6 1,15 * *"
+  workflow_dispatch:
+permissions:
+  actions: write
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    steps:
+      - run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/trade.yml/enable"
+        env:
+          GH_TOKEN: ${{ github.token }}

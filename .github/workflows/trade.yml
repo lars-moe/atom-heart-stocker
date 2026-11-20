@@ -1,0 +1,114 @@
+# Atom Heart Stocker - runs the trading sessions on GitHub's servers (free for public repositories).
+#
+# The cron lines below are in UTC and fire several times a day on purpose:
+# `python main.py due` works out which session (Nordic / Europe / US) is due in
+# local exchange time - summer/winter time included - runs each one once per
+# day, and does nothing on the other runs. Extra runs make up for GitHub
+# occasionally delaying or dropping scheduled runs.
+name: trade
+
+on:
+  schedule:
+    - cron: "37 8,9,10,11,13 * * 1-5"    # Nordic 10:15 + Europe 10:30 local, with retries
+    - cron: "47 14,15,16,18 * * 1-5"     # US 10:30 New York, with retries
+  workflow_dispatch:
+    inputs:
+      session:
+        description: "Run one session now (ignores the clock)"
+        type: choice
+        options: [auto, nordic, europe, us]
+        default: auto
+      dry_run:
+        description: "Decide and log, but place no orders"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write      # save the portfolio state to the 'state' branch
+  pages: write         # publish the dashboard
+  id-token: write
+
+concurrency:
+  group: trading
+  cancel-in-progress: false
+
+jobs:
+  session:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}dashboard.html
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      TZ: Europe/Oslo
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Restore portfolio state (branch 'state')
+        run: |
+          if git ls-remote --exit-code --heads origin state >/dev/null; then
+            git fetch --depth=1 origin state
+            git archive FETCH_HEAD state | tar -x
+            echo "State restored."
+          else
+            echo "First run: starting fresh portfolios."
+          fi
+
+      - name: Restore price cache
+        uses: actions/cache/restore@v4
+        with:
+          path: data_cache
+          key: prices-${{ github.run_id }}
+          restore-keys: prices-
+
+      - name: Run due session(s)
+        id: run
+        run: |
+          DRY=""; [ "${{ inputs.dry_run }}" = "true" ] && DRY="--dry-run"
+          S="${{ inputs.session }}"
+          if [ -n "$S" ] && [ "$S" != "auto" ]; then
+            python main.py session -s "$S" --force $DRY
+            cp reports/dashboard.html reports/index.html
+            echo "ran=true" >> "$GITHUB_OUTPUT"
+          else
+            python main.py due $DRY
+          fi
+
+      - name: Save price cache
+        if: steps.run.outputs.ran == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: data_cache
+          key: prices-${{ github.run_id }}
+
+      - name: Save portfolio state
+        if: steps.run.outputs.ran == 'true' && inputs.dry_run != true
+        run: |
+          tmp=$(mktemp -d)
+          cp -r state "$tmp/"
+          cd "$tmp"
+          git init -q -b state
+          git add state
+          git -c user.name="atom-heart-stocker" -c user.email="bot@users.noreply.github.com" \
+              commit -qm "state $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" state:state
+          echo "State saved."
+
+      - name: Package dashboard
+        if: steps.run.outputs.ran == 'true'
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: reports
+
+      - name: Publish dashboard
+        id: deploy
+        if: steps.run.outputs.ran == 'true'
+        uses: actions/deploy-pages@v5

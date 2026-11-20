@@ -1,0 +1,111 @@
+# Atom Heart Stocker 1.0 - configuration
+# Everything a human may want to tune lives here. Hard rules live in `hard_rules`
+# and are enforced by the Broker agent: no other agent can override them.
+
+# ---------------------------------------------------------------- brokers
+# Per portfolio: broker = sim | ibkr | alpaca
+#   sim     built-in simulator on real (15-min delayed) prices, all markets, NOK book. Works today.
+#   ibkr    Interactive Brokers paper account (TWS/IB Gateway must be running on this computer)
+#   alpaca  Alpaca paper account, US-listed symbols only (the US session)
+ibkr:
+  host: 127.0.0.1
+  port: 7497          # TWS paper = 7497, IB Gateway paper = 4002
+  client_id: 17
+  account: ""         # paper account id (DU...), blank = default
+
+alpaca:
+  trading_url: https://paper-api.alpaca.markets     # PAPER. Live URL is refused unless allow_live is true
+  data_url: https://data.alpaca.markets
+  allow_live: false                                  # also requires env AHS_I_UNDERSTAND_REAL_MONEY=yes
+  data_feed: sip
+  limit_buffer_bps: 30  # limit price = last price +/- 0.30 %
+
+fx:
+  # Currency rule: positions are valued at the FX rate on the day they were bought;
+  # currency gains/losses count only when sale proceeds are converted back to NOK.
+  source: norges_bank
+  manual_rates: {}      # fallback, e.g. {USD: 10.1, EUR: 11.7}
+
+data:
+  history_start: "2015-06-01"   # 5y backtest + 5y lookback window
+  lookback_years: 5
+  cache_dir: data_cache
+  benchmark: SPY
+  global_benchmark: ACWI
+  use_fundamentals: true        # live only, never in backtests
+
+universe:
+  file: universe.csv
+  min_price_usd: 2              # applied to the NOK value per share / 10 (rough USD), filters penny stocks
+  min_avg_dollar_volume_usd: 3000000   # 20-day average traded value (converted), avoids illiquid names
+
+hard_rules:
+  max_single_buy_pct_of_equity: 0.25   # USER RULE: one buy never > 25 % of (cash + holdings)
+  max_position_pct_of_equity: 0.25     # also stops repeated buys stacking above 25 %
+  allow_margin: false
+  allow_short: false
+  avoid_same_day_round_trip: true
+
+costs:
+  slippage_bps: 10           # per side
+  commission_bps: 5          # per side (typical online-broker level in Europe)
+  sell_regulatory_bps: 0.3   # fees on sales (approximate)
+  fx_conversion_bps: 25      # NOK <-> foreign currency spread, charged on conversion
+
+learning:
+  horizon_days: 20
+  window_evaluations: 60
+  learning_rate: 2.0
+  min_weight: 0.10
+  max_weight: 0.60
+
+debate:
+  use_llm: true                    # live runs only; never in backtests (an LLM knows the future)
+  model: claude-sonnet-5-5
+  max_candidates: 8
+  daily_brief: true                # Claude writes a short plain-language summary per session
+
+schedule:
+  rebalance_every_days: 1          # full buy/sell review in every daily session
+  sessions: [nordic, europe, us]   # see ahs/markets.py for times
+
+portfolios:
+  MAIN:
+    broker: sim
+    env_prefix: ALPACA_MAIN          # only used if broker = alpaca
+    start_capital_nok: 200000
+    max_position_pct: 0.12
+    max_positions: 15
+    min_cash_pct: 0.05
+    max_region_pct: 0.55
+    max_sector_pct: 0.30
+    max_annual_vol: 0.45
+    ref_vol: 0.25
+    hard_stop_pct: 0.15
+    trailing_atr_mult: 3.0
+    require_uptrend: true
+    min_score_to_buy: 0.32
+    sell_score: -0.15
+    max_corr_with_holdings: 0.80
+    min_hold_days: 10               # calendar days; only the hard stop can sell earlier (anti-churn)
+    agent_weights: {opportunity: 0.35, value: 0.35, risk: 0.30}
+
+  HIGH_RISK:
+    broker: sim
+    env_prefix: ALPACA_HIGHRISK
+    start_capital_nok: 200000
+    max_position_pct: 0.25           # equal to the hard cap
+    max_positions: 8
+    min_cash_pct: 0.0
+    max_region_pct: 0.90
+    max_sector_pct: 0.60
+    max_annual_vol: 1.20
+    ref_vol: 0.45
+    hard_stop_pct: 0.25
+    trailing_atr_mult: 4.0
+    require_uptrend: false
+    min_score_to_buy: 0.25
+    sell_score: -0.10
+    max_corr_with_holdings: 0.90
+    min_hold_days: 5
+    agent_weights: {opportunity: 0.55, value: 0.20, risk: 0.25}
