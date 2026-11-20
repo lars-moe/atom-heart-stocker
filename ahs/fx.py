@@ -27,13 +27,26 @@ NB = "https://data.norges-bank.no/api/data/EXR/B.{ccys}.NOK.SP"
 CCYS = ("USD", "EUR", "SEK", "DKK", "GBP", "CHF")
 
 
+def _num(x) -> float:
+    """Parse '10.12', '10,12', '1,027.94' or '1.027,94' (the last separator is the decimal one)."""
+    t = str(x).strip().replace(" ", "").replace("\u00a0", "")
+    if "," in t and "." in t:
+        dec = "," if t.rfind(",") > t.rfind(".") else "."
+        t = t.replace("." if dec == "," else ",", "").replace(",", ".")
+    else:
+        t = t.replace(",", ".")
+    return float(t)
+
+
 def _parse_nb_csv(text: str) -> pd.DataFrame:
-    text = text.lstrip("﻿")
-    delim = ";" if text.count(";") > text.count(",") else ","
+    text = text.lstrip("\ufeff")
+    first = text.splitlines()[0] if text else ""
+    delim = ";" if first.count(";") > first.count(",") else ","     # decide on the header line only
     rows = []
     for r in csv.DictReader(io.StringIO(text), delimiter=delim):
-        mult = int(r.get("UNIT_MULT") or 0)
-        rows.append((r["TIME_PERIOD"], r["BASE_CUR"], float(str(r["OBS_VALUE"]).replace(",", ".")) / 10 ** mult))
+        um = str(r.get("UNIT_MULT") or "0").strip()
+        mult = int(um) if um.lstrip("-").isdigit() else 0
+        rows.append((r["TIME_PERIOD"], r["BASE_CUR"], _num(r["OBS_VALUE"]) / 10 ** mult))
     df = pd.DataFrame(rows, columns=["date", "ccy", "rate"])
     out = df.pivot(index="date", columns="ccy", values="rate")
     out.index = pd.to_datetime(out.index)
@@ -48,7 +61,32 @@ def fetch_norges_bank(start: str | None = None, last_n: int | None = None, ccys=
         params["lastNObservations"] = last_n
     r = requests.get(NB.format(ccys="+".join(ccys)), params=params, timeout=30)
     r.raise_for_status()
-    return _parse_nb_csv(r.text)
+    try:
+        df = _parse_nb_csv(r.text)
+    except Exception as e:  # noqa: BLE001
+        raise ValueError(f"unexpected Norges Bank format ({e}); first lines: {r.text[:400]!r}") from e
+    bad = [c for c in df.columns if not (0.05 < df[c].dropna().median() < 50)]
+    if bad:
+        raise ValueError(f"implausible Norges Bank rates for {bad}; first lines: {r.text[:400]!r}")
+    return df
+
+
+def fetch_yahoo_fx(start: str, ccys=CCYS) -> pd.DataFrame:
+    """Fallback source: Yahoo Finance daily closes for XXXNOK=X."""
+    import yfinance as yf  # type: ignore
+    out = {}
+    for c in ccys:
+        df = yf.download(f"{c}NOK=X", start=start, interval="1d", auto_adjust=False, progress=False)
+        if df is None or df.empty:
+            continue
+        close = df["Close"]
+        if isinstance(close, pd.DataFrame):
+            close = close.iloc[:, 0]
+        close.index = pd.to_datetime(close.index).tz_localize(None).normalize()
+        out[c] = close.astype(float)
+    if not out:
+        raise RuntimeError("Yahoo FX returned no data")
+    return pd.DataFrame(out).sort_index()
 
 
 class FxRates:
@@ -60,11 +98,13 @@ class FxRates:
         self.hist = pd.read_csv(self.file, index_col=0, parse_dates=True) if self.file.exists() else pd.DataFrame()
 
     def refresh(self, start: str = "2015-06-01", log=print) -> None:
+        since = start if self.hist.empty else (self.hist.index[-1] - pd.Timedelta(days=10)).strftime("%Y-%m-%d")
         try:
-            if self.hist.empty:
-                new = fetch_norges_bank(start=start)
-            else:
-                new = fetch_norges_bank(start=(self.hist.index[-1] - pd.Timedelta(days=10)).strftime("%Y-%m-%d"))
+            try:
+                new = fetch_norges_bank(start=since)
+            except Exception as e:  # noqa: BLE001
+                log(f"  ! Norges Bank FX failed ({e}); using Yahoo FX instead")
+                new = fetch_yahoo_fx(since)
             self.hist = pd.concat([self.hist[~self.hist.index.isin(new.index)], new]).sort_index()
             self.file.parent.mkdir(parents=True, exist_ok=True)
             self.hist.to_csv(self.file)

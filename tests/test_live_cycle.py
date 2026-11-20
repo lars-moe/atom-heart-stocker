@@ -163,3 +163,9 @@ def test_run_due_retries_failures(tmp_path):
     run_due(cfg, led, flaky, log=lambda *a: None, now=now)
     assert calls.count(("HIGH_RISK", "nordic")) == 2      # retried once, then succeeded
     assert calls.count(("MAIN", "nordic")) == 1           # not re-run
+
+
+def test_number_formats():
+    from ahs.fx import _num
+    assert _num("10.12") == 10.12 and _num("10,12") == 10.12
+    assert _num("1,027.94") == 1027.94 and _num("1.027,94") == 1027.94
