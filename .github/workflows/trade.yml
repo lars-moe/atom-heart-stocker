@@ -9,8 +9,10 @@ name: trade
 
 on:
   schedule:
-    - cron: "37 8,9,10,11,13 * * 1-5"    # Nordic 10:15 + Europe 10:30 local, with retries
-    - cron: "47 14,15,16,18 * * 1-5"     # US 10:30 New York, with retries
+    # GitHub often starts scheduled runs late or skips some, so there are many triggers.
+    # Runs where nothing is due finish in about a minute (free in public repositories).
+    - cron: "7,37 8-13 * * 1-5"          # Nordic 10:15 + Europe 10:30 local, with retries
+    - cron: "17,47 14-19 * * 1-5"        # US 10:30 New York, with retries
   workflow_dispatch:
     inputs:
       session:
