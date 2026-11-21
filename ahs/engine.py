@@ -201,6 +201,7 @@ def run_session(cfg: Config, portfolio: str, session_name: str, dry_run: bool = 
         text_brief = brief(rec, cfg["debate"]["model"])
         rec["brief"] = text_brief
     ledger.save_research(portfolio, today, session_name, rec)
+    _export_benchmarks(store, cfg, state)
 
     log(f"[{portfolio}/{session_name}] value NOK {acct.equity:,.0f}  cash NOK {acct.cash:,.0f}  "
         f"{len(records)} orders{' (dry run)' if dry_run else ''}")
@@ -209,6 +210,17 @@ def run_session(cfg: Config, portfolio: str, session_name: str, dry_run: bool = 
             + (f"  [{'; '.join(r.broker_notes)}]" if r.broker_notes else ""))
     return {"portfolio": portfolio, "session": session_name, "equity": acct.equity, "orders": records,
             "intents": intents, "research": rec}
+
+
+def _export_benchmarks(store, cfg, state):
+    """Index prices for comparison, saved with the state so reviews can read them without internet."""
+    cols = {}
+    for b in (cfg["data"]["global_benchmark"], cfg["data"]["benchmark"]):
+        df = store.read(b)
+        if df is not None:
+            cols[b] = df.close.iloc[-800:]
+    if cols:
+        pd.DataFrame(cols).to_csv(state / "benchmarks.csv")
 
 
 def _local_date(ts, tz):
