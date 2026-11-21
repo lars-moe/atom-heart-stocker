@@ -41,9 +41,8 @@ jobs:
   session:
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}dashboard.html
+    outputs:
+      ran: ${{ steps.run.outputs.ran }}
     env:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       TZ: Europe/Oslo
@@ -118,7 +117,23 @@ jobs:
         with:
           path: reports
 
+  publish:
+    # GitHub's recommended setup: publish in a separate job after the build job has uploaded the page.
+    needs: session
+    if: needs.session.outputs.ran == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url || steps.retry.outputs.page_url }}dashboard.html
+    steps:
       - name: Publish dashboard
         id: deploy
-        if: steps.run.outputs.ran == 'true'
+        continue-on-error: true
+        uses: actions/deploy-pages@v5
+      - name: Wait before retry
+        if: steps.deploy.outcome == 'failure'
+        run: sleep 45
+      - name: Publish dashboard (retry)
+        id: retry
+        if: steps.deploy.outcome == 'failure'
         uses: actions/deploy-pages@v5
