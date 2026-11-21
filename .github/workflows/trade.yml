@@ -13,6 +13,9 @@ on:
     # Runs where nothing is due finish in about a minute (free in public repositories).
     - cron: "7,37 8-13 * * 1-5"          # Nordic 10:15 + Europe 10:30 local, with retries
     - cron: "17,47 14-19 * * 1-5"        # US 10:30 New York, with retries
+  push:                                  # a new sidebar picture rebuilds the dashboard (no trading)
+    branches: [main]
+    paths: ["assets/**"]
   workflow_dispatch:
     inputs:
       session:
@@ -76,6 +79,7 @@ jobs:
         run: |
           DRY=""; [ "${{ inputs.dry_run }}" = "true" ] && DRY="--dry-run"
           S="${{ inputs.session }}"
+          [ "${{ github.event_name }}" = "push" ] && S="dashboard-only"
           if [ "$S" = "dashboard-only" ]; then
             python main.py dashboard
             cp reports/dashboard.html reports/index.html
@@ -96,7 +100,7 @@ jobs:
           key: prices-${{ github.run_id }}
 
       - name: Save portfolio state
-        if: steps.run.outputs.ran == 'true' && inputs.dry_run != true && inputs.session != 'dashboard-only'
+        if: steps.run.outputs.ran == 'true' && inputs.dry_run != true && inputs.session != 'dashboard-only' && github.event_name != 'push'
         run: |
           tmp=$(mktemp -d)
           cp -r state "$tmp/"

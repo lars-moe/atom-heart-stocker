@@ -151,9 +151,22 @@ def portfolio_from_backtest(cfg, res, universe, research: list[dict]) -> dict:
     return p
 
 
+def _sidebar_image(out_dir: Path) -> str | None:
+    """Optional picture for the sidebar: put your own image in assets/ as sidebar.jpg/.png/.webp."""
+    import shutil
+    assets = Path(__file__).resolve().parent.parent / "assets"
+    for ext in ("jpg", "jpeg", "png", "webp"):
+        src = assets / f"sidebar.{ext}"
+        if src.exists():
+            out_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copy(src, out_dir / src.name)
+            return src.name
+    return None
+
+
 def write_dashboard(portfolios: list[dict], out: Path, mode: str = "live", note: str = "") -> Path:
     data = {"generated": datetime.now().strftime("%Y-%m-%d %H:%M"), "mode": mode, "note": note,
-            "schedule": schedule_table(), "portfolios": portfolios}
+            "schedule": schedule_table(), "portfolios": portfolios, "sidebar_image": _sidebar_image(out.parent)}
     html = TEMPLATE.replace("__DATA__", json.dumps(_clean(data)).replace("</", "<\\/"))
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(html, encoding="utf-8")
@@ -260,7 +273,7 @@ select{font:inherit;padding:8px 10px;border-radius:6px;border:1px solid var(--li
  <nav class="side" id="nav"></nav>
  <div class="sidefoot">
   <div><span class="dot"></span>Private · Paper investing</div>
-  <div class="emblem" aria-hidden="true"><svg width="120" height="96" viewBox="0 0 120 96">
+  <div class="emblem" id="emblem" aria-hidden="true"><svg width="120" height="96" viewBox="0 0 120 96">
    <g fill="none" stroke="#c9a46a" stroke-width="1.3" opacity=".9">
     <ellipse cx="60" cy="48" rx="46" ry="15"/><ellipse cx="60" cy="48" rx="46" ry="15" transform="rotate(60 60 48)"/>
     <ellipse cx="60" cy="48" rx="46" ry="15" transform="rotate(-60 60 48)"/></g>
@@ -419,6 +432,8 @@ function operations(){const ps=shown();
  ps.forEach(p=>{const W=p.weights||[],names=W.length?Object.keys(W.at(-1)[1]):[],cols=["--s-main","--s-risk","--s-bench"];
   lineChart(document.getElementById("w_"+p.name),names.map((a,i)=>({name:a,color:cols[i%3],data:W.map(([d,w])=>[d,w[a]])})),{fmt:v=>(v*100).toFixed(0)+"%",h:220,label:"Agent weights"});});
 }
+if(D.sidebar_image){const e=document.getElementById("emblem");e.style.padding="0";e.style.background="none";
+ e.innerHTML=`<img src="${esc(D.sidebar_image)}" alt="" style="width:100%;border-radius:6px;display:block">`;}
 function render(){shell();({Overview:overview,Opportunities:opportunities,Research:research,Trades:trades,Operations:operations})[page]();}
 render();let rt;window.addEventListener("resize",()=>{clearTimeout(rt);rt=setTimeout(render,150);});
 </script></body></html>"""
