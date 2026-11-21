@@ -191,7 +191,11 @@ def run_session(cfg: Config, portfolio: str, session_name: str, dry_run: bool = 
         ledger.put(portfolio, "sim_book", book.dumps())
 
     acct = gw.account() if not isinstance(gw, _DryGateway) else acct
-    _snapshot_portfolio(ledger, portfolio, today, acct, prices, fx_now, universe, book)
+    marks = {s: pd.Timestamp(ts).tz_localize("UTC").tz_convert("Europe/Oslo").strftime("%Y-%m-%d %H:%M")
+             if pd.Timestamp(ts).tzinfo is None else pd.Timestamp(ts).tz_convert("Europe/Oslo").strftime("%Y-%m-%d %H:%M")
+             for s, (_, ts) in live_raw.items()}
+    _snapshot_portfolio(ledger, portfolio, today, acct, prices, fx_now, universe, book, marks,
+                        oslo_now.strftime("%Y-%m-%d %H:%M"), str(t.date()))
 
     text_brief = ""
     rec = build_research(portfolio, session, today, oslo_now.strftime("%H:%M"), analyse, tables, score, team,
@@ -237,7 +241,11 @@ class _DryGateway:
         return {"status": "dry-run"}
 
 
-def _snapshot_portfolio(ledger, portfolio, today, acct, prices, fx_now, universe, book):
+def _snapshot_portfolio(ledger, portfolio, today, acct, prices, fx_now, universe, book, marks=None,
+                        now_str="", last_close_date=""):
+    marks = marks or {}
+    prev = {h["symbol"]: h.get("marked") for h in json.loads(ledger.get(portfolio, "holdings_view") or "{}")
+            .get("holdings", [])}
     hold = []
     for s, h in acct.holdings.items():
         px = prices.get(s, h.entry_price)
@@ -247,10 +255,12 @@ def _snapshot_portfolio(ledger, portfolio, today, acct, prices, fx_now, universe
                      "return_local": px / h.entry_price - 1 if h.entry_price else 0,
                      "fx_effect_not_counted": h.qty * px * (fx_now.get(h.currency, h.entry_fx) - h.entry_fx),
                      "entry_date": h.entry_date,
+                     "marked": marks.get(s) or prev.get(s) or f"close {last_close_date}",
                      "region": universe.at[s, "region"] if s in universe.index else "",
                      "sector": universe.at[s, "sector"] if s in universe.index else ""})
     costs = book.costs if book is not None else {}
-    ledger.put(portfolio, "holdings_view", json.dumps({"date": today, "equity": acct.equity, "cash": acct.cash,
+    ledger.put(portfolio, "holdings_view", json.dumps({"date": today, "time": now_str, "equity": acct.equity,
+                                                        "cash": acct.cash,
                                                         "holdings": hold, "costs": costs}))
     ledger.log_nav(portfolio, today, acct.equity, acct.cash, acct.equity, sum(costs.values()) if costs else 0.0)
     if book is not None:
