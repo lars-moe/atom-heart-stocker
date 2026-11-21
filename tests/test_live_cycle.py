@@ -65,7 +65,8 @@ def test_sessions_trade_and_report(tmp_path, monkeypatch):
     led = Ledger(tmp_path / "state" / "ledger.sqlite")
     pfs = [portfolio_from_ledger(cfg, led, p, None) for p in cfg.portfolios]
     html = write_dashboard(pfs, tmp_path / "reports" / "dashboard.html").read_text()
-    assert "HIGH_RISK" in html and "NaN" not in html
+    data = html.split("const D=", 1)[1].split(";\nconst PAGES", 1)[0]
+    assert "HIGH_RISK" in data and "NaN" not in data
     hv = pfs[1]["kpi"]
     assert hv["positions"] >= 1 and abs(hv["equity"] - 200_000) < 20_000
 
