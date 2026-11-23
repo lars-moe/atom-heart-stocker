@@ -23,7 +23,7 @@ def load_fundamentals(symbols: list[str], cache: Path, log=print) -> dict[str, d
     out = {}
     for s in symbols:
         try:
-            info = yf.Ticker(s.replace(".", "-")).info
+            info = yf.Ticker(s).info   # symbols are already in Yahoo format
             if info.get("quoteType") == "ETF":
                 continue
             mc, fcf = info.get("marketCap"), info.get("freeCashflow")
