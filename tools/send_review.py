@@ -18,6 +18,12 @@ CSS = ("body{font-family:Georgia,serif;color:#191a18;max-width:760px;margin:auto
 
 
 def main(files):
+    if files == ["test"]:                          # send a short test message
+        import tempfile
+        t = Path(tempfile.mkdtemp()) / "test.md"
+        t.write_text("# Test from Atom Heart Stocker\n\nIf you can read this, e-mail delivery works. "
+                     "Daily reviews arrive after 22:13 on weekdays, weekly reviews on Fridays.\n")
+        files = [str(t)]
     env = {k: os.getenv(k, "") for k in ("SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASSWORD", "REPORT_TO")}
     missing = [k for k, v in env.items() if not v]
     if missing:
@@ -30,7 +36,7 @@ def main(files):
         if not p.exists() or p.name.lower() == "readme.md":
             continue
         text = p.read_text(encoding="utf-8")
-        kind = "Daily" if "daily" in p.parts else "Weekly"
+        kind = "Daily" if "daily" in p.parts else "Weekly" if "weekly" in p.parts else "Test"
         msg = EmailMessage()
         msg["Subject"] = f"Atom Heart Stocker - {kind} review {p.stem}"
         msg["From"] = env["SMTP_USER"]

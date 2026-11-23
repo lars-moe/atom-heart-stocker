@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       file:
-        description: "Review file to (re)send, e.g. reviews/daily/2026-11-23.md"
+        description: "Review file to (re)send, e.g. reviews/daily/2026-11-23.md - or 'test' for a test e-mail"
         required: true
 jobs:
   send:
