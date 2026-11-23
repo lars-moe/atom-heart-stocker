@@ -1,0 +1,39 @@
+# E-mails each new review (reviews/daily/*.md and reviews/weekly/*.md) when it is pushed.
+# Needs repository secrets: SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, REPORT_TO
+name: email-review
+on:
+  push:
+    branches: [main]
+    paths: ["reviews/**/*.md"]
+  workflow_dispatch:
+    inputs:
+      file:
+        description: "Review file to (re)send, e.g. reviews/daily/2026-11-23.md"
+        required: true
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install markdown
+      - name: Send
+        env:
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          REPORT_TO: ${{ secrets.REPORT_TO }}
+        run: |
+          if [ -n "${{ inputs.file }}" ]; then
+            FILES="${{ inputs.file }}"
+          else
+            FILES=$(git diff --name-only --diff-filter=AM HEAD~1 HEAD -- 'reviews/**/*.md' | grep -iv readme || true)
+          fi
+          echo "Files: $FILES"
+          [ -z "$FILES" ] && exit 0
+          python tools/send_review.py $FILES
