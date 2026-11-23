@@ -13,7 +13,7 @@ from pathlib import Path
 
 def load_fundamentals(symbols: list[str], cache: Path, log=print) -> dict[str, dict]:
     data = json.loads(cache.read_text()) if cache.exists() else {}
-    if data and time.time() - data.get("_ts", 0) < 7 * 86400:
+    if len(data) > 1 and time.time() - data.get("_ts", 0) < 7 * 86400:      # ignore an empty cache
         return {k: v for k, v in data.items() if not k.startswith("_")}
     try:
         import yfinance as yf  # type: ignore
