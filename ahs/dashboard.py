@@ -164,9 +164,20 @@ def _sidebar_image(out_dir: Path) -> str | None:
     return None
 
 
+def _names() -> dict:
+    """Company name and listing per symbol, so tables can show names instead of bare tickers."""
+    try:
+        from .data import load_universe
+        u = load_universe(Path(__file__).resolve().parent.parent / "universe.csv")
+        return {s: [r["name"], listing(s, r["market"]), r["currency"]] for s, r in u.iterrows()}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
 def write_dashboard(portfolios: list[dict], out: Path, mode: str = "live", note: str = "") -> Path:
     data = {"generated": datetime.now().strftime("%Y-%m-%d %H:%M"), "mode": mode, "note": note,
-            "schedule": schedule_table(), "portfolios": portfolios, "sidebar_image": _sidebar_image(out.parent)}
+            "schedule": schedule_table(), "portfolios": portfolios, "sidebar_image": _sidebar_image(out.parent),
+            "names": _names()}
     html = TEMPLATE.replace("__DATA__", json.dumps(_clean(data)).replace("</", "<\\/"))
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(html, encoding="utf-8")
@@ -299,12 +310,13 @@ const f0=v=>v==null?"–":Number(v).toLocaleString("en-US",{maximumFractionDigit
 const nok=v=>v==null?"–":"NOK "+f2(v);
 const pct=(v,d=2)=>v==null?"–":(v>=0?"":"-")+Math.abs(v*100).toFixed(d)+"%";
 const cls=v=>v==null?"":(v>=0?"up":"down");
-const pname=n=>n.replace("_"," ");
+const pname=n=>n.replace("_","\u00a0");
 const fmtTs=t=>{if(!t)return"–";if(String(t).length===10)return fmtD(t);const d=new Date(t.replace(" ","T"));return isNaN(d)?esc(t):d.toLocaleString("en-GB",{day:"numeric",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"}).replace(" at",",");};
 const fmtD=t=>{if(!t)return"–";const d=new Date(t+(t.length===10?"T12:00":""));return isNaN(d)?esc(t):d.toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"});};
 const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const shown=()=>D.portfolios.filter(p=>view==="both"||p.name===view);
 const isRisk=p=>/RISK/.test(p.name);
+const co=s=>{const n=(D.names||{})[s];return n?`<b>${esc(n[0])}</b><small>${esc(n[1])} · ${esc(n[2])}</small>`:`<b>${esc(s)}</b>`;};
 const order=n=>D.portfolios.findIndex(p=>p.name===n);
 const mark=m=>!m?"–":String(m).startsWith("close ")?"Close "+fmtD(String(m).slice(6)):fmtTs(m);
 
@@ -412,9 +424,9 @@ function trades(){const ps=shown();
  const closed=ps.flatMap(p=>(p.realized||[]).map(r=>({...r,book:p.name}))).sort((a,b)=>b.date.localeCompare(a.date));
  const orders=ps.flatMap(p=>(p.orders||[]).map(o=>({...o,book:p.name}))).sort((a,b)=>b.date.localeCompare(a.date));
  let h=`<div class="card"><div class="cardhead"><div><h2>Closed positions</h2><p class="sub">Result split into price and currency effects.</p></div></div>`+(closed.length?`<div class="tw"><table><thead><tr><th>Sold</th><th>Company</th><th>Book</th><th class="n">Shares</th><th class="n">Return</th><th class="n">Price P/L · NOK</th><th class="n">FX P/L · NOK</th><th>Why sold</th></tr></thead><tbody>`+
- closed.slice(0,200).map(r=>`<tr><td>${fmtD(r.date)}</td><td>${esc(r.symbol)}</td><td>${esc(pname(r.book))}</td><td class="n">${f0(r.qty)}</td><td class="n ${cls(r.return_pct)}">${pct(r.return_pct,1)}</td><td class="n ${cls(r.price_pnl_nok)}">${f2(r.price_pnl_nok)}</td><td class="n ${cls(r.fx_pnl_nok)}">${f2(r.fx_pnl_nok)}</td><td class="small">${esc(r.reason)}</td></tr>`).join("")+`</tbody></table></div>`:`<p class="empty">No positions closed yet.</p>`)+`</div>`;
- h+=`<div class="card" style="margin-top:24px"><div class="cardhead"><h2>All orders</h2></div>`+(orders.length?`<div class="tw"><table><thead><tr><th>Date</th><th>Book</th><th>Side</th><th>Symbol</th><th class="n">Shares</th><th class="n">Price</th><th class="n">Value · NOK</th><th>Status</th><th>Reason · broker notes</th></tr></thead><tbody>`+
- orders.slice(0,300).map(o=>`<tr><td>${fmtD(o.date)}</td><td>${esc(pname(o.book))}</td><td class="${o.side==="buy"?"up":"down"}">${esc(o.side)}</td><td>${esc(o.symbol)}</td><td class="n">${f0(o.qty)}</td><td class="n">${f2(o.limit)} <span class="muted">${esc(o.currency)}</span></td><td class="n">${f2(o.value_nok)}</td><td><span class="chip">${esc(o.status)}</span></td><td class="small">${esc(o.reason)}${o.notes?` <span class="muted">[${esc(o.notes)}]</span>`:""}</td></tr>`).join("")+`</tbody></table></div>`:`<p class="empty">No orders yet.</p>`)+`</div>`;
+ closed.slice(0,200).map(r=>`<tr><td>${fmtD(r.date)}</td><td class="co">${co(r.symbol)}</td><td>${esc(pname(r.book))}</td><td class="n">${f0(r.qty)}</td><td class="n ${cls(r.return_pct)}">${pct(r.return_pct,1)}</td><td class="n ${cls(r.price_pnl_nok)}">${f2(r.price_pnl_nok)}</td><td class="n ${cls(r.fx_pnl_nok)}">${f2(r.fx_pnl_nok)}</td><td class="small">${esc(r.reason)}</td></tr>`).join("")+`</tbody></table></div>`:`<p class="empty">No positions closed yet.</p>`)+`</div>`;
+ h+=`<div class="card" style="margin-top:24px"><div class="cardhead"><h2>All orders</h2></div>`+(orders.length?`<div class="tw"><table><thead><tr><th>Date</th><th>Book</th><th>Side</th><th>Company</th><th class="n">Shares</th><th class="n">Price</th><th class="n">Value · NOK</th><th>Status</th><th>Reason · broker notes</th></tr></thead><tbody>`+
+ orders.slice(0,300).map(o=>`<tr><td>${fmtD(o.date)}</td><td>${esc(pname(o.book))}</td><td class="${o.side==="buy"?"up":"down"}">${esc(o.side)}</td><td class="co">${co(o.symbol)}</td><td class="n">${f0(o.qty)}</td><td class="n">${f2(o.limit)} <span class="muted">${esc(o.currency)}</span></td><td class="n">${f2(o.value_nok)}</td><td><span class="chip">${esc(o.status)}</span></td><td class="small">${esc(o.reason)}${o.notes?` <span class="muted">[${esc(o.notes)}]</span>`:""}</td></tr>`).join("")+`</tbody></table></div>`:`<p class="empty">No orders yet.</p>`)+`</div>`;
  $("#main").innerHTML=head()+h;wireSeg();}
 function operations(){const ps=shown();
  let h=`<div class="grid2" style="margin-top:0"><div class="card"><h2 style="font-size:20px;margin-bottom:12px">Daily schedule</h2><table><tbody>${D.schedule.map(r=>{const [t,...rest]=r.split("  ");return `<tr><td style="white-space:nowrap">${esc(t)}</td><td>${esc(rest.join(" ").trim())}</td></tr>`;}).join("")}</tbody></table><p class="sub">Runs on GitHub Actions on weekdays. Holidays are skipped automatically. Dashboard generated ${fmtTs(D.generated)}.</p></div>
