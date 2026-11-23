@@ -11,8 +11,8 @@ on:
   schedule:
     # GitHub often starts scheduled runs late or skips some, so there are many triggers.
     # Runs where nothing is due finish in about a minute (free in public repositories).
-    - cron: "7,37 8-13 * * 1-5"          # Nordic 10:15 + Europe 10:30 local, with retries
-    - cron: "17,47 14-19 * * 1-5"        # US 10:30 New York, with retries
+    - cron: "8,38 8-13 * * 1-5"          # Nordic 10:15 + Europe 10:30 local, with retries
+    - cron: "18,48 14-19 * * 1-5"        # US 10:30 New York, with retries
   push:                                  # a new sidebar picture rebuilds the dashboard (no trading)
     branches: [main]
     paths: ["assets/**"]
