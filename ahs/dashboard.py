@@ -377,9 +377,9 @@ function pcard(p){const k=p.kpi,cashPct=k.equity?k.cash/k.equity:0;
  <div class="foot"><span>${(cashPct*100).toFixed(1)}% cash</span><span>Last report ${fmtTs(p.last_report)}</span></div></div>`;}
 function holdingsTable(ps){const rows=ps.flatMap(p=>p.holdings.map(h=>({...h,book:p.name})));
  if(!rows.length)return `<p class="empty">No open positions yet.</p>`;
- return `<div class="tw"><table><thead><tr><th>Company / listing</th><th>Book</th><th class="n">Shares</th><th class="n">Return</th><th class="n">Value · NOK</th><th>Mark as of</th></tr></thead><tbody>`+
+ return `<div class="tw"><table><thead><tr><th>Company / listing</th><th>Book</th><th class="n">Shares</th><th class="n">Return</th><th class="n">Value · NOK</th><th class="n" title="Value if converted at today's exchange rate (information only)">At today's FX · NOK</th><th>Mark as of</th></tr></thead><tbody>`+
  rows.sort((a,b)=>order(a.book)-order(b.book)||b.value_nok-a.value_nok).map(h=>`<tr><td class="co"><b>${esc(h.name)}</b><small>${esc(h.listing)} · ${esc(h.currency)}</small></td>
- <td>${esc(pname(h.book))}</td><td class="n">${f0(h.qty)}</td><td class="n ${cls(h.return_local)}">${pct(h.return_local,1)}</td><td class="n">${nok(h.value_nok)}</td><td>${mark(h.marked)}</td></tr>`).join("")+`</tbody></table></div>`;}
+ <td>${esc(pname(h.book))}</td><td class="n">${f0(h.qty)}</td><td class="n ${cls(h.return_local)}">${pct(h.return_local,1)}</td><td class="n">${nok(h.value_nok)}</td><td class="n muted">${h.currency==="NOK"?"–":nok(h.value_nok+(h.fx_effect_not_counted||0))}</td><td>${mark(h.marked)}</td></tr>`).join("")+`</tbody></table></div>`;}
 function overview(){const ps=shown();
  let h=`<div class="cards">${ps.map(pcard).join("")}</div>`;
  h+=`<div class="card"><div class="cardhead"><h2>Current holdings</h2><button class="btn" style="font-size:12px;padding:7px 12px" onclick="document.getElementById('hist').scrollIntoView({behavior:'smooth'})">Continuing history</button></div>${holdingsTable(ps)}</div>`;
