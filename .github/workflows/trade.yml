@@ -21,7 +21,7 @@ on:
       session:
         description: "Run one session now (ignores the clock)"
         type: choice
-        options: [auto, nordic, europe, us, dashboard-only]
+        options: [auto, nordic, europe, us, dashboard-only, diagnose]
         default: auto
       dry_run:
         description: "Decide and log, but place no orders"
@@ -79,7 +79,10 @@ jobs:
           DRY=""; [ "${{ inputs.dry_run }}" = "true" ] && DRY="--dry-run"
           S="${{ inputs.session }}"
           [ "${{ github.event_name }}" = "push" ] && S="dashboard-only"
-          if [ "$S" = "dashboard-only" ]; then
+          if [ "$S" = "diagnose" ]; then
+            python main.py diagnose
+            echo "ran=false" >> "$GITHUB_OUTPUT"
+          elif [ "$S" = "dashboard-only" ]; then
             python main.py dashboard
             cp reports/dashboard.html reports/index.html
             echo "ran=true" >> "$GITHUB_OUTPUT"

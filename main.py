@@ -152,6 +152,34 @@ def cmd_due(cfg, args):
             f.write(f"ran={'true' if ran else 'false'}\n")
 
 
+def cmd_diagnose(cfg, args):
+    """Print data-alignment facts used to debug indicators (no trading)."""
+    import numpy as np
+    import pandas as pd
+    from ahs.features import compute_features
+    u = load_universe(cfg.path(cfg["universe"]["file"]))
+    store = DataStore(cfg.path(cfg["data"]["cache_dir"]) / "yahoo")
+    syms = [s for s in u.index if store.read(s) is not None]
+    print(f"cached symbols: {len(syms)}")
+    for s in ["SPY", "XOM", "KO", "AAPL", "EQNR.OL", "SAP.DE"]:
+        df = store.read(s)
+        if df is None:
+            print(s, "no data"); continue
+        idx = df.index
+        print(f"{s:8} rows={len(df)} first={idx[0]} last={idx[-1]} dup={idx.duplicated().sum()} "
+              f"weekend={(idx.dayofweek >= 5).sum()} times={sorted(set(idx.strftime('%H:%M')))[:3]} last5={list(idx[-5:].strftime('%a %m-%d'))}")
+    p = store.panels(syms, before=pd.Timestamp.today().normalize())
+    print("union dates:", len(p.dates), "weekend dates in union:", int((p.dates.dayofweek >= 5).sum()))
+    f = compute_features(p, "SPY", 5)
+    raw = {s: store.read(s).close for s in ["SPY", "XOM", "KO", "AAPL"] if store.read(s) is not None}
+    j = pd.DataFrame(raw).dropna().iloc[-260:].pct_change().dropna()
+    for s in ["XOM", "KO", "AAPL"]:
+        if s in j:
+            direct = j[s].cov(j["SPY"]) / j["SPY"].var()
+            lag = j[s].cov(j["SPY"].shift(1)) / j["SPY"].var()
+            print(f"{s}: beta in features={f['beta_1y'][s].dropna().iloc[-1]:.2f}  direct={direct:.2f}  vs SPY lagged 1 day={lag:.2f}")
+
+
 def cmd_serve(cfg, args):
     import functools
     import http.server
@@ -164,7 +192,8 @@ def cmd_serve(cfg, args):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("command", choices=["init", "fetch", "backtest", "session", "scheduler", "due", "dashboard", "serve", "demo"])
+    ap.add_argument("command", choices=["init", "fetch", "backtest", "session", "scheduler", "due", "dashboard", "serve", "demo",
+                             "diagnose"])
     ap.add_argument("-p", "--portfolio", default="all", help="MAIN, HIGH_RISK or all")
     ap.add_argument("-s", "--session", default="nordic", choices=["nordic", "europe", "us"])
     ap.add_argument("--dry-run", action="store_true", help="decide and log, but place no orders")
@@ -175,7 +204,7 @@ def main(argv=None):
     args = ap.parse_args(argv)
     cfg = load_config(args.config)
     {"init": cmd_init, "fetch": cmd_fetch, "backtest": cmd_backtest, "session": cmd_session,
-     "scheduler": cmd_scheduler, "due": cmd_due, "dashboard": cmd_dashboard, "serve": cmd_serve, "demo": cmd_demo}[args.command](cfg, args)
+     "scheduler": cmd_scheduler, "due": cmd_due, "diagnose": cmd_diagnose, "dashboard": cmd_dashboard, "serve": cmd_serve, "demo": cmd_demo}[args.command](cfg, args)
 
 
 if __name__ == "__main__":
