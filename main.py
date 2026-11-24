@@ -177,7 +177,7 @@ def cmd_diagnose(cfg, args):
         if s in j:
             direct = j[s].cov(j["SPY"]) / j["SPY"].var()
             lag = j[s].cov(j["SPY"].shift(1)) / j["SPY"].var()
-            print(f"{s}: beta in features={f['beta_1y'][s].dropna().iloc[-1]:.2f}  direct={direct:.2f}  vs SPY lagged 1 day={lag:.2f}")
+            print(f"{s}: beta (2y weekly, adjusted)={f['beta'][s].dropna().iloc[-1]:.2f}  daily 1y raw={direct:.2f}  vs SPY lagged 1 day={lag:.2f}")
 
 
 def cmd_serve(cfg, args):

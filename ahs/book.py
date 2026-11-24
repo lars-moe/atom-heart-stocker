@@ -25,8 +25,10 @@ class Position:
     high_water: float       # highest close since entry (local), for trailing stops
     market: str = ""
 
-    def value(self, price: float) -> float:
-        return self.qty * price * self.entry_fx
+    def value(self, price: float, fx_now: float | None = None) -> float:
+        """NOK value. Default: at entry FX (currency counted only when converted back).
+        With fx_now: at today's rate."""
+        return self.qty * price * (fx_now if fx_now else self.entry_fx)
 
 
 @dataclass
@@ -40,11 +42,12 @@ class SimBook:
     cost_cfg: dict = field(default_factory=dict)
 
     # ---------- valuation ----------
-    def equity(self, prices: dict[str, float]) -> float:
-        return self.cash + sum(p.value(prices.get(s, p.entry_price)) for s, p in self.positions.items())
+    def equity(self, prices: dict[str, float], fx_now: dict[str, float] | None = None) -> float:
+        return self.cash + sum(self.holdings_value(prices, fx_now).values())
 
-    def holdings_value(self, prices: dict[str, float]) -> dict[str, float]:
-        return {s: p.value(prices.get(s, p.entry_price)) for s, p in self.positions.items()}
+    def holdings_value(self, prices: dict[str, float], fx_now: dict[str, float] | None = None) -> dict[str, float]:
+        return {s: p.value(prices.get(s, p.entry_price), (fx_now or {}).get(p.currency))
+                for s, p in self.positions.items()}
 
     def unrealised_fx_effect(self, prices: dict[str, float], fx_now: dict[str, float]) -> float:
         """Information only (not counted, per the currency rule)."""

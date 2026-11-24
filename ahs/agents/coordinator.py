@@ -52,7 +52,7 @@ class PortfolioCoordinatorAgent:
     def decide(self, snap: pd.DataFrame, tables: dict[str, pd.DataFrame], weights: dict[str, float],
                holdings: dict, equity: float, cash: float, returns: pd.DataFrame,
                full_review: bool, session_symbols: set[str] | None = None,
-               today: str | None = None) -> tuple[list[TradeIntent], pd.Series]:
+               today: str | None = None, budget_share: float = 1.0) -> tuple[list[TradeIntent], pd.Series]:
         """`snap` must carry a column `fx` (NOK per unit of the symbol's currency).
         `session_symbols` limits exits and entries to the markets of the current session."""
         self.skips: dict[str, str] = {}
@@ -94,11 +94,46 @@ class PortfolioCoordinatorAgent:
         # 2) entries
         kept = [s for s in holdings if s not in exiting]
         slots = self.p.max_positions - len(kept)
+        proceeds = sum(i.qty * i.ref_price * i.fx for i in intents if i.side == "sell")
+        deployable = cash + proceeds - self.p.min_cash_pct * equity
+        # Spread new money over the day's sessions, so a full portfolio isn't
+        # bought in the first (Nordic) session and the US session isn't locked out.
+        budget = deployable * budget_share
+        min_order = self.p.min_order_pct * equity
+
+        cands = score[(score >= self.p.min_score_to_buy) & (~veto.reindex(score.index).fillna(True))]
+        cands = cands.drop([s for s in cands.index if s in holdings or
+                            (session_symbols is not None and s not in session_symbols)],
+                           errors="ignore").sort_values(ascending=False)
+
+        # 2a) rotation: if there is no room (slots or cash), swap the weakest holding
+        # that trades now for a clearly better candidate.
+        if len(cands) and (slots <= 0 or deployable < min_order) and self.p.max_rotations_per_session > 0:
+            movable = []
+            for sym, h in holdings.items():
+                if sym in exiting or (session_symbols is not None and sym not in session_symbols):
+                    continue
+                held_days = (pd.Timestamp(today) - pd.Timestamp(h.entry_date)).days if today else 999
+                if held_days >= self.p.min_hold_days and pd.notna(score.get(sym)):
+                    movable.append((float(score[sym]), sym, h))
+            movable.sort()
+            for weakest_score, sym, h in movable[:self.p.max_rotations_per_session]:
+                best = float(cands.iloc[0])
+                if best - weakest_score < self.p.rotation_margin:
+                    break
+                r = snap.loc[sym]
+                why = (f"rotation: score {weakest_score:+.2f} vs {cands.index[0]} {best:+.2f} "
+                       f"(margin >= {self.p.rotation_margin:.2f})")
+                intents.append(TradeIntent(sym, "sell", h.qty, float(r.close), "rotate", why, weakest_score,
+                                           self.debate(sym, snap, tables), h.currency, float(r.fx), h.market))
+                exiting.add(sym)
+                kept.remove(sym)
+                slots += 1
+                value = h.qty * float(r.close) * float(r.fx)
+                budget += value                      # proceeds of a rotation are used in this session
         if slots <= 0:
             self.skips["*"] = f"portfolio full ({self.p.max_positions} positions)"
             return intents, score
-        proceeds = sum(i.qty * i.ref_price * i.fx for i in intents if i.side == "sell")
-        budget = cash + proceeds - self.p.min_cash_pct * equity
         expo = {"region": {}, "sector": {}}
         for s in kept:
             v = holdings[s].value_base / equity
@@ -106,14 +141,11 @@ class PortfolioCoordinatorAgent:
                 key = self.u.at[s, k] if s in self.u.index else "?"
                 expo[k][key] = expo[k].get(key, 0) + v
 
-        cands = score[(score >= self.p.min_score_to_buy) & (~veto.reindex(score.index).fillna(True))]
-        cands = cands.drop([s for s in cands.index if s in holdings or
-                            (session_symbols is not None and s not in session_symbols)],
-                           errors="ignore").sort_values(ascending=False)
         held_now = list(kept)
         for sym in cands.index:
-            if slots <= 0 or budget <= 0:
-                self.skips[sym] = "no free position slots" if slots <= 0 else "no cash left after reserve"
+            if slots <= 0 or budget < min_order:
+                self.skips[sym] = ("no free position slots" if slots <= 0 else
+                                   "no cash left for this session (budget shared across the day's sessions)")
                 continue
             r = snap.loc[sym]
             region = self.u.at[sym, "region"] if sym in self.u.index else "?"
@@ -135,6 +167,13 @@ class PortfolioCoordinatorAgent:
             qty = math.floor(notional / (r.close * r.fx))
             if qty < 1:
                 self.skips[sym] = "one share costs more than the position budget"
+                continue
+            actual = qty * r.close * r.fx
+            floor_nok = max(min_order, self.p.min_fill_of_target * weight * equity)
+            if actual < floor_nok:                   # skip leftover-cash crumbs that only add costs
+                self.skips[sym] = (f"order too small: NOK {actual:,.0f} is below the minimum "
+                                   f"(NOK {floor_nok:,.0f} = {self.p.min_order_pct:.0%} of portfolio or "
+                                   f"{self.p.min_fill_of_target:.0%} of target)")
                 continue
             case["coordinator"] = {"combined_score": round(float(cands[sym]), 3), "target_weight": round(weight, 4),
                                    "conviction": round(conviction, 2), "portfolio_fit": fit_note,

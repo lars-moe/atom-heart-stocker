@@ -170,3 +170,40 @@ def test_number_formats():
     from ahs.fx import _num
     assert _num("10.12") == 10.12 and _num("10,12") == 10.12
     assert _num("1,027.94") == 1027.94 and _num("1.027,94") == 1027.94
+
+
+def test_session_budget_min_order_and_rotation(tmp_path, monkeypatch):
+    cfg = _setup(tmp_path, monkeypatch)
+    prof = cfg.portfolios["HIGH_RISK"]
+    out = engine.run_session(cfg, "HIGH_RISK", "nordic", force=True, log=lambda *a: None)
+    buys = [r for r in out["orders"] if r.side == "buy" and r.status == "filled"]
+    spent = sum(r.notional for r in buys)
+    assert spent <= 0.34 * 200_000 * 1.02          # Nordic may use about a third of the cash
+    assert all(r.notional >= 0.01 * 200_000 * 0.99 for r in buys)   # no crumbs
+    # Rotation: allow it immediately and with any margin, then a later session must rotate
+    prof.min_hold_days, prof.rotation_margin, prof.max_positions = 0, -5.0, len(buys)
+    out2 = engine.run_session(cfg, "HIGH_RISK", "nordic", force=True, log=lambda *a: None)
+    assert any(i.kind == "rotate" for i in out2["intents"])
+
+
+def test_fx_valuation_current_vs_purchase():
+    from ahs.book import SimBook
+    bk = SimBook(cash=250_000, start_capital=250_000, cost_cfg={})
+    bk.buy("SAP.DE", 100, 200.0, "EUR", 11.0, "2026-01-02")
+    assert bk.equity({"SAP.DE": 200.0}) == 250_000                       # purchase-day FX
+    assert bk.equity({"SAP.DE": 200.0}, {"EUR": 12.0}) == 250_000 + 20_000   # today's FX
+
+
+def test_beta_is_robust():
+    import numpy as np
+    from ahs.data import Panels
+    from ahs.features import compute_features
+    rng = np.random.default_rng(5)
+    n = 900
+    idx = pd.bdate_range("2023-01-02", periods=n)
+    m = rng.normal(0, 0.01, n)
+    df = pd.DataFrame({"SPY": 100 * np.exp(np.cumsum(m)),
+                       "LOW": 50 * np.exp(np.cumsum(0.5 * m + rng.normal(0, 0.008, n)))}, index=idx)
+    f = compute_features(Panels(df, df, df, df, df * 0 + 1e6), "SPY", 5)
+    b = f["beta"]["LOW"].iloc[-1]
+    assert 0.5 < b < 0.85          # true 0.5, Blume-adjusted towards 1 -> about 0.67

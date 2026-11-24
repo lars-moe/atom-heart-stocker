@@ -43,11 +43,16 @@ def compute_features(p: Panels, benchmark: str = "SPY", lookback_years: int = 5)
     dd = c / c.rolling(Y, min_periods=200).max() - 1
     f["maxdd_1y"] = dd.rolling(Y, min_periods=200).min()
     if benchmark in c.columns:
-        b = ret[benchmark]
-        cov = ret.rolling(Y, min_periods=200).cov(b)
-        f["beta_1y"] = cov.div(b.rolling(Y, min_periods=200).var(), axis=0)
+        # Weekly (5-day) returns over 2 years are far less noisy than 1 year of daily returns,
+        # and are not distorted by different closing times. Blume adjustment pulls the
+        # estimate towards 1 (raw betas drift towards 1 over time).
+        r5 = c.pct_change(5, fill_method=None)
+        b5 = r5[benchmark]
+        cov = r5.rolling(2 * Y, min_periods=Y).cov(b5)
+        raw = cov.div(b5.rolling(2 * Y, min_periods=Y).var(), axis=0)
+        f["beta"] = 0.67 * raw + 0.33
     else:
-        f["beta_1y"] = pd.DataFrame(np.nan, index=c.index, columns=c.columns)
+        f["beta"] = pd.DataFrame(np.nan, index=c.index, columns=c.columns)
     f["adv20"] = (c * v).rolling(20, min_periods=15).mean()
 
     # --- long-horizon value / quality (5-year lookback, Value agent)

@@ -23,6 +23,10 @@ alpaca:
 fx:
   # Currency rule: positions are valued at the FX rate on the day they were bought;
   # currency gains/losses count only when sale proceeds are converted back to NOK.
+  # valuation: purchase = holdings valued at the FX rate on the purchase day; currency
+  #                       gains/losses count only when proceeds are converted back (owner's rule)
+  #             current  = holdings valued at today's FX rate (currency moves show up immediately)
+  valuation: purchase
   source: norges_bank
   manual_rates: {}      # fallback, e.g. {USD: 10.1, EUR: 11.7}
 
@@ -67,6 +71,9 @@ debate:
 
 schedule:
   rebalance_every_days: 1          # full buy/sell review in every daily session
+  # Share of the deployable cash each session may spend on new buys, so money is
+  # spread over Oslo/Nordics, Europe and the US instead of all going in the first session.
+  session_budget: {nordic: 0.34, europe: 0.5, us: 1.0}
   sessions: [nordic, europe, us]   # see ahs/markets.py for times
 
 portfolios:
@@ -88,6 +95,10 @@ portfolios:
     sell_score: -0.15
     max_corr_with_holdings: 0.80
     min_hold_days: 10               # calendar days; only the hard stop can sell earlier (anti-churn)
+    min_order_pct: 0.01             # skip buys smaller than 1 % of the portfolio ...
+    min_fill_of_target: 0.5         # ... or smaller than half of the intended position
+    rotation_margin: 0.35           # swap weakest holding for a candidate scoring this much higher
+    max_rotations_per_session: 1
     agent_weights: {opportunity: 0.35, value: 0.35, risk: 0.30}
 
   HIGH_RISK:
@@ -108,4 +119,8 @@ portfolios:
     sell_score: -0.10
     max_corr_with_holdings: 0.90
     min_hold_days: 5
+    min_order_pct: 0.01
+    min_fill_of_target: 0.5
+    rotation_margin: 0.30
+    max_rotations_per_session: 1
     agent_weights: {opportunity: 0.55, value: 0.20, risk: 0.25}

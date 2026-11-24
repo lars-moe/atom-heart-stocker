@@ -38,14 +38,15 @@ class SimGateway:
     """Live simulator: an order fills immediately at the current (delayed) market price."""
     name = "sim"
 
-    def __init__(self, book: SimBook, prices: dict, fx_now: dict, universe, today: str):
+    def __init__(self, book: SimBook, prices: dict, fx_now: dict, universe, today: str, fx_current: bool = False):
         self.book, self.prices, self.fx, self.u, self.today = book, prices, fx_now, universe, today
+        self.mark_fx = fx_now if fx_current else None     # value holdings at today's FX if configured
 
     def account(self) -> AccountView:
-        hv = self.book.holdings_value(self.prices)
+        hv = self.book.holdings_value(self.prices, self.mark_fx)
         holds = {s: Holding(s, p.qty, p.entry_price, p.entry_date, p.high_water, p.currency, p.entry_fx, hv[s], p.market)
                  for s, p in self.book.positions.items()}
-        return AccountView(self.book.equity(self.prices), self.book.cash, holds)
+        return AccountView(self.book.equity(self.prices, self.mark_fx), self.book.cash, holds)
 
     def submit(self, symbol, qty, side, limit, client_order_id, reason=""):
         px = self.prices.get(symbol)
@@ -84,7 +85,7 @@ class IBKRGateway:
     name = "ibkr"
 
     def __init__(self, cfg: dict, universe, prices: dict, fx_now: dict, ledger, portfolio: str,
-                 today: str, markets: dict, dry_run=False):
+                 today: str, markets: dict, dry_run=False, fx_current: bool = False):
         from ib_async import IB  # type: ignore  (pip install ib_async)
         self.ib = IB()
         self.ib.connect(cfg.get("host", "127.0.0.1"), int(cfg.get("port", 7497)),
@@ -93,6 +94,7 @@ class IBKRGateway:
         self.acct = acct
         self.u, self.prices, self.fx, self.ledger, self.pf = universe, prices, fx_now, ledger, portfolio
         self.today, self.markets, self.dry = today, markets, dry_run
+        self.fx_current = fx_current
         self.meta = json.loads(ledger.get(portfolio, "ibkr_entry") or "{}")
         self._contracts = {}
 
@@ -147,8 +149,9 @@ class IBKRGateway:
             entry_fx = m.get("entry_fx", self.fx.get(ccy, 1.0))
             px = self.prices.get(sym, float(p.avgCost))
             hw = max(m.get("high_water", px), px)
+            mark = self.fx.get(ccy, entry_fx) if self.fx_current else entry_fx
             holds[sym] = Holding(sym, int(p.position), float(p.avgCost), m.get("entry_date", self.today), hw,
-                                 ccy, entry_fx, int(p.position) * px * entry_fx,
+                                 ccy, entry_fx, int(p.position) * px * mark,
                                  self.u.at[sym, "market"] if sym in self.u.index else "")
             self.meta[sym] = {"entry_fx": entry_fx, "entry_date": m.get("entry_date", self.today), "high_water": hw}
         self.ledger.put(self.pf, "ibkr_entry", json.dumps(self.meta))

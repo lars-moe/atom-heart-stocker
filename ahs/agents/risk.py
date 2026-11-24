@@ -17,7 +17,7 @@ class RiskAnalysisAgent(AnalystAgent):
     def assess(self, s: pd.DataFrame) -> pd.DataFrame:
         calm = -xrank(s.vol_60)
         shallow = clip(1 + s.maxdd_1y / 0.25)            # -25 % drawdown -> 0, -50 % -> -1
-        beta = clip(1 - (s.beta_1y.fillna(1) - 1))       # beta 1 -> 0 penalty
+        beta = clip(1 - (s.beta.fillna(1) - 1))       # beta 1 -> 0 penalty
         stance = clip(0.45 * calm + 0.35 * shallow + 0.20 * beta)
         px_usd = s["close_usd"] if "close_usd" in s else s.close          # thresholds are in USD
         adv_usd = s["adv20_usd"] if "adv20_usd" in s else s.adv20
@@ -46,8 +46,8 @@ class RiskAnalysisAgent(AnalystAgent):
         (pros if r.vol_60 < 0.30 else cons).append(f"Annualised volatility {r.vol_60:.0%}")
         if pd.notna(r.maxdd_1y):
             (pros if r.maxdd_1y > -0.20 else cons).append(f"Worst 1-year drawdown {pct(r.maxdd_1y)}")
-        if pd.notna(r.beta_1y):
-            (pros if r.beta_1y < 1.1 else cons).append(f"Beta vs S&P 500 {r.beta_1y:.2f}")
+        if pd.notna(r.beta):
+            (pros if r.beta < 1.1 else cons).append(f"Beta vs S&P 500 {r.beta:.2f} (2-year weekly, adjusted)")
         why = self.veto_reason(r)
         if why:
             cons.append(f"VETO: {why}")

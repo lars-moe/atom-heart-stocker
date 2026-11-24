@@ -120,13 +120,14 @@ def run_session(cfg: Config, portfolio: str, session_name: str, dry_run: bool = 
     prices = {**{k: v for k, v in last_close.items() if v == v}, **live}
 
     # --- broker
+    fx_current = cfg["fx"].get("valuation", "purchase") == "current"
     book = None
     if prof.broker == "sim":
         book = load_book(cfg, ledger, portfolio)
         book.mark({s: last_close.get(s) for s in book.positions})
-        gw = SimGateway(book, prices, fx_now, universe, today)
+        gw = SimGateway(book, prices, fx_now, universe, today, fx_current)
     elif prof.broker == "ibkr":
-        gw = IBKRGateway(cfg["ibkr"], universe, prices, fx_now, ledger, portfolio, today, MARKETS, dry_run)
+        gw = IBKRGateway(cfg["ibkr"], universe, prices, fx_now, ledger, portfolio, today, MARKETS, dry_run, fx_current)
     else:
         lock = StartLock(state).lock(portfolio, prof.start_capital_nok, fx_now["USD"])
         gw = AlpacaGateway(client, universe, lock["usdnok"], ledger, portfolio, today, dry_run)
@@ -150,7 +151,8 @@ def run_session(cfg: Config, portfolio: str, session_name: str, dry_run: bool = 
     tables = team.coordinator.assess_all(analyse)
     rets = panels.close.pct_change(fill_method=None)
     intents, score = team.coordinator.decide(analyse, tables, weights, acct.holdings, acct.equity, acct.cash,
-                                             rets, full, set(session_syms), today)
+                                             rets, full, set(session_syms), today,
+                                             float(cfg["schedule"].get("session_budget", {}).get(session_name, 1.0)))
 
     review_note = ""
     if full and cfg["debate"].get("use_llm") and any(i.side == "buy" for i in intents):
@@ -195,7 +197,7 @@ def run_session(cfg: Config, portfolio: str, session_name: str, dry_run: bool = 
              if pd.Timestamp(ts).tzinfo is None else pd.Timestamp(ts).tz_convert("Europe/Oslo").strftime("%Y-%m-%d %H:%M")
              for s, (_, ts) in live_raw.items()}
     _snapshot_portfolio(ledger, portfolio, today, acct, prices, fx_now, universe, book, marks,
-                        oslo_now.strftime("%Y-%m-%d %H:%M"), str(t.date()))
+                        oslo_now.strftime("%Y-%m-%d %H:%M"), str(t.date()), cfg["fx"].get("valuation", "purchase"))
 
     text_brief = ""
     rec = build_research(portfolio, session, today, oslo_now.strftime("%H:%M"), analyse, tables, score, team,
@@ -242,7 +244,7 @@ class _DryGateway:
 
 
 def _snapshot_portfolio(ledger, portfolio, today, acct, prices, fx_now, universe, book, marks=None,
-                        now_str="", last_close_date=""):
+                        now_str="", last_close_date="", fx_val="purchase"):
     marks = marks or {}
     prev = {h["symbol"]: h.get("marked") for h in json.loads(ledger.get(portfolio, "holdings_view") or "{}")
             .get("holdings", [])}
@@ -253,13 +255,15 @@ def _snapshot_portfolio(ledger, portfolio, today, acct, prices, fx_now, universe
                      "market": h.market, "currency": h.currency, "qty": h.qty, "entry_price": h.entry_price,
                      "price": px, "entry_fx": h.entry_fx, "value_nok": h.value_base,
                      "return_local": px / h.entry_price - 1 if h.entry_price else 0,
-                     "fx_effect_not_counted": h.qty * px * (fx_now.get(h.currency, h.entry_fx) - h.entry_fx),
+                     "fx_effect_not_counted": 0.0 if fx_val == "current" else
+                     h.qty * px * (fx_now.get(h.currency, h.entry_fx) - h.entry_fx),
                      "entry_date": h.entry_date,
                      "marked": marks.get(s) or prev.get(s) or f"close {last_close_date}",
                      "region": universe.at[s, "region"] if s in universe.index else "",
                      "sector": universe.at[s, "sector"] if s in universe.index else ""})
     costs = book.costs if book is not None else {}
     ledger.put(portfolio, "holdings_view", json.dumps({"date": today, "time": now_str, "equity": acct.equity,
+                                                        "fx_valuation": fx_val,
                                                         "cash": acct.cash,
                                                         "holdings": hold, "costs": costs}))
     ledger.log_nav(portfolio, today, acct.equity, acct.cash, acct.equity, sum(costs.values()) if costs else 0.0)

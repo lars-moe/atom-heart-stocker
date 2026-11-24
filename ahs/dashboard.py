@@ -89,6 +89,7 @@ def portfolio_from_ledger(cfg, ledger, name: str, bench_closes: pd.DataFrame | N
               realized, [dict(zip(("date", "symbol", "side", "qty", "limit", "value_nok", "currency", "status",
                                    "kind", "reason", "notes"), o)) for o in orders],
               ledger.research(name, 30), weights, ics, equity - prev, hv.get("costs", {}))
+    p["kpi"]["fx_valuation"] = hv.get("fx_valuation", "purchase")
     p.update({"revision": len(runs), "last_report": last_report, "started": started,
               "runs": [{"ts": r[0].replace("T", " ")[:16], "mode": r[1], "full": bool(r[2]), "note": r[4] or ""}
                        for r in runs[::-1][:60]]})
@@ -112,7 +113,7 @@ def _pack(name, broker, start, equity, cash, holdings, nav, bench, realized, ord
         h["listing"] = listing(h["symbol"], h.get("market", ""))
     return _clean({
         "name": name, "broker": broker, "start": start,
-        "kpi": {"equity": equity, "cash": cash, "positions": len(holdings), "ret_total": equity / start - 1,
+        "kpi": {"equity": equity, "cash": cash, "fx_valuation": "purchase", "positions": len(holdings), "ret_total": equity / start - 1,
                 "day_change": day_change, "unrealized": unreal,
                 "realized_price": sum(r.get("price_pnl_nok", 0) for r in realized),
                 "realized_fx": sum(r.get("fx_pnl_nok", 0) for r in realized),
@@ -370,6 +371,7 @@ function pcard(p){const k=p.kpi,cashPct=k.equity?k.cash/k.equity:0;
  return `<div class="card pcard ${isRisk(p)?"risk":""}"><div class="top"><span class="label">${esc(pname(p.name))}</span><span class="small">Session ${p.revision}</span></div>
  <div class="klabel">Portfolio value</div><div class="big">${nok(k.equity)}</div>
  <span class="badge ${cls(k.ret_total)}">${pct(k.ret_total)}</span><span class="since">${p.started?"since "+fmtTs(p.started):"since start"}</span>
+ ${k.fx_valuation!=="current"&&Math.abs(k.fx_not_counted||0)>=1?`<div class="since" style="margin-top:8px">At today's exchange rates: ${nok(k.equity+k.fx_not_counted)} <span class="muted">(currency effect ${k.fx_not_counted>=0?"+":""}${f0(k.fx_not_counted)}, counted only when converted back)</span></div>`:""}
  <div class="kv"><div><div class="k">Cash</div><div class="v">${nok(k.cash)}</div></div><div><div class="k">Holdings</div><div class="v">${k.positions}</div></div><div><div class="k">Costs to date</div><div class="v">${nok(k.costs)}</div></div></div>
  <div class="meter"><div style="width:${(cashPct*100).toFixed(1)}%"></div></div>
  <div class="foot"><span>${(cashPct*100).toFixed(1)}% cash</span><span>Last report ${fmtTs(p.last_report)}</span></div></div>`;}

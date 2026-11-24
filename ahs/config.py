@@ -31,6 +31,10 @@ class PortfolioProfile:
     sell_score: float
     max_corr_with_holdings: float
     min_hold_days: int = 7
+    min_order_pct: float = 0.01
+    min_fill_of_target: float = 0.5
+    rotation_margin: float = 0.30
+    max_rotations_per_session: int = 1
     agent_weights: dict = field(default_factory=dict)
 
 
